@@ -1,98 +1,160 @@
-"""
-facade-service — HTTP server on port 8000
-POST /  {msg: "..."}  → UUID generated, sent to logging-service via gRPC
-GET  /                → queries logging-service (gRPC) + messages-service (HTTP)
-GET  /debug           → shows last error for diagnosis
-"""
-import uuid, time, traceback
+import uuid, time, threading
 import requests
 from flask import Flask, request, jsonify
-from grpc_lib import RpcClient, LogRequest, LogResponse, GetRequest, GetResponse
 
 app = Flask(__name__)
 
-LOGGING_HOST  = "127.0.0.1"
-LOGGING_PORT  = 8001
-MESSAGES_URL  = "http://127.0.0.1:8002"
+LOGGING_URL = "http://logging-service:8001"
+COUNTER_URL = "http://counter-service:8002"
 
-RETRY_ATTEMPTS = 3
-RETRY_DELAY    = 1.0
-
-_last_error = ""
-
-
-def grpc_log_with_retry(msg_uuid: str, msg: str):
-    global _last_error
-    payload = LogRequest(uuid=msg_uuid, msg=msg).SerializeToString()
-    client  = RpcClient(LOGGING_HOST, LOGGING_PORT)
-    for attempt in range(1, RETRY_ATTEMPTS + 1):
-        try:
-            print(f"[FACADE] gRPC attempt {attempt}/{RETRY_ATTEMPTS}: "
-                  f"LogMessage uuid={msg_uuid} msg={msg}", flush=True)
-            raw  = client.call("LogMessage", payload)
-            resp = LogResponse()
-            resp.ParseFromString(raw)
-            print(f"[FACADE] gRPC response: status={resp.status}", flush=True)
-            _last_error = ""
-            return resp
-        except Exception as e:
-            err = traceback.format_exc()
-            _last_error = err
-            print(f"[FACADE] Attempt {attempt} FAILED:\n{err}", flush=True)
-            if attempt < RETRY_ATTEMPTS:
-                print(f"[FACADE] Retrying in {RETRY_DELAY}s ...", flush=True)
-                time.sleep(RETRY_DELAY)
-    return None
+stats_lock = threading.Lock()
+logging_total_ms  = 0.0
+logging_calls     = 0
+counter_total_ms  = 0.0
+counter_calls     = 0
 
 
-def grpc_get_messages() -> str:
-    client  = RpcClient(LOGGING_HOST, LOGGING_PORT)
-    payload = GetRequest().SerializeToString()
-    raw     = client.call("GetMessages", payload)
-    resp    = GetResponse()
-    resp.ParseFromString(raw)
-    return resp.messages
+def _timed_post(url, payload):
+    t0 = time.perf_counter()
+    r  = requests.post(url, json=payload, timeout=10)
+    ms = (time.perf_counter() - t0) * 1000
+    return r, ms
 
 
-@app.route("/debug")
-def debug():
-    """Shows the last gRPC error — open this in browser if POST isn't working."""
-    return jsonify({"last_grpc_error": _last_error or "none"})
+def _timed_get(url):
+    t0 = time.perf_counter()
+    r  = requests.get(url, timeout=10)
+    ms = (time.perf_counter() - t0) * 1000
+    return r, ms
 
+@app.route("/transaction", methods=["POST"])
+def post_transaction():
+    global logging_total_ms, logging_calls, counter_total_ms, counter_calls
 
-@app.route("/", methods=["POST"])
-def post_message():
     data = request.get_json(silent=True)
-    if not data or "msg" not in data:
-        return jsonify({"error": "Body must be JSON with 'msg' field"}), 400
-    msg      = data["msg"]
-    msg_uuid = str(uuid.uuid4())
-    print(f"[FACADE] POST received: msg={msg}  uuid={msg_uuid}", flush=True)
-    resp = grpc_log_with_retry(msg_uuid, msg)
-    if resp is None:
-        return jsonify({"error": f"logging-service unavailable after {RETRY_ATTEMPTS} retries",
-                        "detail": _last_error}), 503
-    return jsonify({"uuid": msg_uuid, "status": resp.status})
+    if not data or "user_id" not in data or "amount" not in data:
+        return jsonify({"error": "Required: user_id, amount"}), 400
+
+    user_id    = str(data["user_id"])
+    amount     = float(data["amount"])
+    tx_id      = str(uuid.uuid4())
+    timestamp  = time.time()
+
+    transaction = {
+        "transaction_id": tx_id,
+        "user_id":        user_id,
+        "amount":         amount,
+        "timestamp":      timestamp,
+    }
+
+    print(f"[FACADE] POST transaction: {transaction}")
+
+    log_result   = [None]
+    count_result = [None]
+    log_ms       = [0.0]
+    count_ms     = [0.0]
+    errors       = []
+
+    def call_logging():
+        try:
+            r, ms = _timed_post(f"{LOGGING_URL}/log", transaction)
+            log_result[0] = r.json()
+            log_ms[0]     = ms
+        except Exception as e:
+            errors.append(f"logging-service: {e}")
+
+    def call_counter():
+        try:
+            r, ms = _timed_post(f"{COUNTER_URL}/counter",
+                                 {"user_id": user_id, "amount": amount})
+            count_result[0] = r.json()
+            count_ms[0]     = ms
+        except Exception as e:
+            errors.append(f"counter-service: {e}")
+
+    t_log   = threading.Thread(target=call_logging)
+    t_count = threading.Thread(target=call_counter)
+    t_log.start();   t_count.start()
+    t_log.join();    t_count.join()
+
+    if errors:
+        return jsonify({"error": errors}), 503
+
+    with stats_lock:
+        logging_total_ms  += log_ms[0];   logging_calls  += 1
+        counter_total_ms  += count_ms[0]; counter_calls  += 1
+
+    balance = count_result[0].get("balance", 0)
+    print(f"[FACADE] tx_id={tx_id}  user={user_id}  "
+          f"amount={amount:+.2f}  balance={balance:.2f}  "
+          f"log={log_ms[0]:.1f}ms  counter={count_ms[0]:.1f}ms")
+
+    return jsonify({"transaction_id": tx_id, "balance": balance})
 
 
-@app.route("/", methods=["GET"])
-def get_messages():
-    print("[FACADE] GET — querying logging-service (gRPC) + messages-service (HTTP)", flush=True)
+@app.route("/user/<user_id>", methods=["GET"])
+def get_user(user_id):
+    global logging_total_ms, logging_calls, counter_total_ms, counter_calls
+
     try:
-        logged = grpc_get_messages()
-        print(f"[FACADE] logging-service returned: '{logged}'", flush=True)
+        r_log, ms_log = _timed_get(f"{LOGGING_URL}/log/{user_id}")
+        transactions  = r_log.json().get("transactions", [])
     except Exception as e:
-        err = traceback.format_exc()
-        print(f"[FACADE] gRPC GetMessages FAILED:\n{err}", flush=True)
-        logged = f"[error: {e}]"
+        return jsonify({"error": f"logging-service: {e}"}), 503
+
     try:
-        r      = requests.get(f"{MESSAGES_URL}/messages", timeout=3)
-        static = r.json().get("message", "")
+        r_cnt, ms_cnt = _timed_get(f"{COUNTER_URL}/counter/{user_id}")
+        balance       = r_cnt.json().get("balance", 0)
     except Exception as e:
-        static = f"[messages-service error: {e}]"
-    combined = f"{logged}: {static}"
-    print(f"[FACADE] Combined: {combined}", flush=True)
-    return jsonify({"result": combined})
+        return jsonify({"error": f"counter-service: {e}"}), 503
+
+    with stats_lock:
+        logging_total_ms += ms_log; logging_calls  += 1
+        counter_total_ms += ms_cnt; counter_calls  += 1
+
+    print(f"[FACADE] GET user={user_id}  balance={balance}  "
+          f"txs={len(transactions)}  log={ms_log:.1f}ms  counter={ms_cnt:.1f}ms")
+    return jsonify({"user_id": user_id, "balance": balance,
+                    "transactions": transactions})
+
+@app.route("/accounts", methods=["GET"])
+def get_accounts():
+    global counter_total_ms, counter_calls
+    try:
+        r, ms = _timed_get(f"{COUNTER_URL}/counter")
+        balances = r.json().get("balances", {})
+    except Exception as e:
+        return jsonify({"error": f"counter-service: {e}"}), 503
+
+    with stats_lock:
+        counter_total_ms += ms; counter_calls += 1
+
+    print(f"[FACADE] GET /accounts  counter={ms:.1f}ms")
+    return jsonify({"balances": balances})
+
+@app.route("/stats", methods=["GET"])
+def get_stats():
+    with stats_lock:
+        return jsonify({
+            "logging_service":  {
+                "total_calls": logging_calls,
+                "total_ms":    round(logging_total_ms, 2),
+                "avg_ms":      round(logging_total_ms / logging_calls, 2) if logging_calls else 0,
+            },
+            "counter_service":  {
+                "total_calls": counter_calls,
+                "total_ms":    round(counter_total_ms, 2),
+                "avg_ms":      round(counter_total_ms / counter_calls, 2) if counter_calls else 0,
+            },
+        })
+
+
+@app.route("/stats", methods=["DELETE"])
+def reset_stats():
+    global logging_total_ms, logging_calls, counter_total_ms, counter_calls
+    with stats_lock:
+        logging_total_ms = logging_calls = counter_total_ms = counter_calls = 0
+    return jsonify({"status": "stats reset"})
 
 
 if __name__ == "__main__":

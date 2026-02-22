@@ -1,0 +1,34 @@
+services:
+  logging-service:
+    build: ./logging-service
+    container_name: logging-service
+    ports:
+      - "8001:8001"
+    networks:
+      - banking-net
+
+  counter-service:
+    build: ./counter-service
+    container_name: counter-service
+    ports:
+      - "8002:8002"
+    networks:
+      - banking-net
+
+  facade-service:
+    build: ./facade-service
+    container_name: facade-service
+    ports:
+      - "8000:8000"
+    depends_on:
+      - logging-service
+      - counter-service
+    networks:
+      - banking-net
+    environment:
+      - LOGGING_URL=http://logging-service:8001
+      - COUNTER_URL=http://counter-service:8002
+
+networks:
+  banking-net:
+    driver: bridge
