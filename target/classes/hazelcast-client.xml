@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hazelcast-client xmlns="http://www.hazelcast.com/schema/client-config"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.hazelcast.com/schema/client-config
+                  http://www.hazelcast.com/schema/client-config/hazelcast-client-config-5.3.xsd">
+
+    <cluster-name>dev</cluster-name>
+
+    <network>
+        <cluster-members>
+            <address>localhost:5701</address>
+            <address>localhost:5702</address>
+            <address>localhost:5703</address>
+        </cluster-members>
+        <smart-routing>false</smart-routing>
+    </network>
+
+</hazelcast-client>

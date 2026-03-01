@@ -1,0 +1,41 @@
+hazelcast:
+  cluster-name: dev
+
+  network:
+    port:
+      auto-increment: true
+      port: 5701
+    join:
+      multicast:
+        enabled: false
+      tcp-ip:
+        enabled: true
+        member-list:
+          - hazelcast1:5701
+          - hazelcast2:5701
+          - hazelcast3:5701
+
+  map:
+    entries:
+      backup-count: 1
+      async-backup-count: 0
+
+    counter-map:
+      backup-count: 1
+
+    counter-pessimistic:
+      backup-count: 1
+
+    counter-optimistic:
+      backup-count: 1
+
+  queue:
+    bounded-queue:
+      max-size: 10
+      backup-count: 1
+      async-backup-count: 0
+      empty-queue-ttl: -1
+
+  # Management Center connection
+  management-center:
+    scripting-enabled: true

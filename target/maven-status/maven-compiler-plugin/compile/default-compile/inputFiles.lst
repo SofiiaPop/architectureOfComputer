@@ -1,0 +1,8 @@
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/BoundedQueueDemo.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/ClientHelper.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/DistributedMapDemo.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/LockBenchmark.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/NoLockIncrement.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/OptimisticLockIncrement.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/PessimisticLockIncrement.java
+/Users/sofiiapopeniuk/Documents/arcitectureOfComputerSystems/lab2/src/main/java/com/task/hazelcast/QueueFullDemo.java

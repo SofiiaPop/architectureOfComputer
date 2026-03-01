@@ -1,0 +1,64 @@
+services:
+  hazelcast1:
+    image: hazelcast/hazelcast:5.3.8
+    container_name: hazelcast1
+    environment:
+      - HZ_CLUSTERNAME=dev
+      - HZ_NETWORK_JOIN_TCPIP_ENABLED=true
+      - HZ_NETWORK_JOIN_TCPIP_MEMBERS=hazelcast1:5701,hazelcast2:5701,hazelcast3:5701
+      - HZ_NETWORK_JOIN_MULTICAST_ENABLED=false
+      - HZ_QUEUE_BOUNDEDQUEUE_MAXSIZE=10
+      - JAVA_OPTS=-Dhazelcast.local.publicAddress=localhost:5701
+    ports:
+      - "5701:5701"
+    networks:
+      - hazelcast-network
+
+  hazelcast2:
+    image: hazelcast/hazelcast:5.3.8
+    container_name: hazelcast2
+    environment:
+      - HZ_CLUSTERNAME=dev
+      - HZ_NETWORK_JOIN_TCPIP_ENABLED=true
+      - HZ_NETWORK_JOIN_TCPIP_MEMBERS=hazelcast1:5701,hazelcast2:5701,hazelcast3:5701
+      - HZ_NETWORK_JOIN_MULTICAST_ENABLED=false
+      - HZ_QUEUE_BOUNDEDQUEUE_MAXSIZE=10
+      - JAVA_OPTS=-Dhazelcast.local.publicAddress=localhost:5702
+    ports:
+      - "5702:5701"
+    networks:
+      - hazelcast-network
+
+  hazelcast3:
+    image: hazelcast/hazelcast:5.3.8
+    container_name: hazelcast3
+    environment:
+      - HZ_CLUSTERNAME=dev
+      - HZ_NETWORK_JOIN_TCPIP_ENABLED=true
+      - HZ_NETWORK_JOIN_TCPIP_MEMBERS=hazelcast1:5701,hazelcast2:5701,hazelcast3:5701
+      - HZ_NETWORK_JOIN_MULTICAST_ENABLED=false
+      - HZ_QUEUE_BOUNDEDQUEUE_MAXSIZE=10
+      - JAVA_OPTS=-Dhazelcast.local.publicAddress=localhost:5703
+    ports:
+      - "5703:5701"
+    networks:
+      - hazelcast-network
+
+  management-center:
+    image: hazelcast/management-center:5.3
+    container_name: hazelcast-mc
+    environment:
+      - MC_DEFAULT_CLUSTER_MEMBERS=hazelcast1:5701,hazelcast2:5701,hazelcast3:5701
+      - MC_DEFAULT_CLUSTER_NAME=dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      - hazelcast1
+      - hazelcast2
+      - hazelcast3
+    networks:
+      - hazelcast-network
+
+networks:
+  hazelcast-network:
+    driver: bridge
