@@ -1,0 +1,232 @@
+networks:
+  micronet:
+    driver: bridge
+
+services:
+
+  # ── Hazelcast cluster (3 nodes) ──────────────────────────────────────────
+  hazelcast1:
+    image: hazelcast/hazelcast:5.3
+    container_name: hazelcast1
+    environment:
+      HZ_CLUSTERNAME: dev
+      JAVA_OPTS: >-
+        -Dhazelcast.config=/opt/hazelcast/config/hazelcast.xml
+        -Dhazelcast.local.publicAddress=hazelcast1:5701
+    ports:
+      - "5701:5701"
+    volumes:
+      - ./hazelcast.xml:/opt/hazelcast/config/hazelcast.xml:ro
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5701/hazelcast/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  hazelcast2:
+    image: hazelcast/hazelcast:5.3
+    container_name: hazelcast2
+    environment:
+      HZ_CLUSTERNAME: dev
+      JAVA_OPTS: >-
+        -Dhazelcast.config=/opt/hazelcast/config/hazelcast.xml
+        -Dhazelcast.local.publicAddress=hazelcast2:5701
+    ports:
+      - "5702:5701"
+    volumes:
+      - ./hazelcast.xml:/opt/hazelcast/config/hazelcast.xml:ro
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5701/hazelcast/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  hazelcast3:
+    image: hazelcast/hazelcast:5.3
+    container_name: hazelcast3
+    environment:
+      HZ_CLUSTERNAME: dev
+      JAVA_OPTS: >-
+        -Dhazelcast.config=/opt/hazelcast/config/hazelcast.xml
+        -Dhazelcast.local.publicAddress=hazelcast3:5701
+    ports:
+      - "5703:5701"
+    volumes:
+      - ./hazelcast.xml:/opt/hazelcast/config/hazelcast.xml:ro
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5701/hazelcast/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ── Hazelcast Management Center ───────────────────────────────────────────
+  # Access at http://localhost:8080  (useful for lab screenshots)
+  hazelcast-mc:
+    image: hazelcast/management-center:5.3
+    container_name: hazelcast-mc
+    ports:
+      - "8080:8080"
+    environment:
+      MC_DEFAULT_CLUSTER_MEMBERS: "hazelcast1:5701"
+      MC_DEFAULT_CLUSTER_NAME: dev
+    networks:
+      - micronet
+    depends_on:
+      hazelcast1:
+        condition: service_healthy
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: counterdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Logging service (3 instances) ─────────────────────────────────────────
+  logging1:
+    build:
+      context: ./logging-service
+    container_name: logging1
+    environment:
+      INSTANCE_ID: "1"
+      PORT: "8001"
+      HZ_ADDRESSES: "hazelcast1:5701,hazelcast2:5701,hazelcast3:5701"
+      HZ_CONNECT_RETRIES: "15"
+      HZ_CONNECT_DELAY: "3"
+    ports:
+      - "8001:8001"
+    depends_on:
+      hazelcast1:
+        condition: service_healthy
+      hazelcast2:
+        condition: service_healthy
+      hazelcast3:
+        condition: service_healthy
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  logging2:
+    build:
+      context: ./logging-service
+    container_name: logging2
+    environment:
+      INSTANCE_ID: "2"
+      PORT: "8002"
+      HZ_ADDRESSES: "hazelcast1:5701,hazelcast2:5701,hazelcast3:5701"
+      HZ_CONNECT_RETRIES: "15"
+      HZ_CONNECT_DELAY: "3"
+    ports:
+      - "8002:8002"
+    depends_on:
+      hazelcast1:
+        condition: service_healthy
+      hazelcast2:
+        condition: service_healthy
+      hazelcast3:
+        condition: service_healthy
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  logging3:
+    build:
+      context: ./logging-service
+    container_name: logging3
+    environment:
+      INSTANCE_ID: "3"
+      PORT: "8003"
+      HZ_ADDRESSES: "hazelcast1:5701,hazelcast2:5701,hazelcast3:5701"
+      HZ_CONNECT_RETRIES: "15"
+      HZ_CONNECT_DELAY: "3"
+    ports:
+      - "8003:8003"
+    depends_on:
+      hazelcast1:
+        condition: service_healthy
+      hazelcast2:
+        condition: service_healthy
+      hazelcast3:
+        condition: service_healthy
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Counter service ───────────────────────────────────────────────────────
+  counter:
+    build:
+      context: ./counter-service
+    container_name: counter
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/counterdb"
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - micronet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Facade service ────────────────────────────────────────────────────────
+  facade:
+    build:
+      context: ./facade-service
+    container_name: facade
+    environment:
+      LOGGING_SERVICE_URLS: "http://logging1:8001,http://logging2:8002,http://logging3:8003"
+      COUNTER_SERVICE_URL: "http://counter:8010"
+    ports:
+      - "8000:8000"
+    depends_on:
+      logging1:
+        condition: service_healthy
+      logging2:
+        condition: service_healthy
+      logging3:
+        condition: service_healthy
+      counter:
+        condition: service_healthy
+    networks:
+      - micronet
+
+volumes:
+  pgdata:

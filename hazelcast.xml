@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hazelcast xmlns="http://www.hazelcast.com/schema/config"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.hazelcast.com/schema/config
+           https://hazelcast.com/schema/config/hazelcast-config-5.3.xsd">
+
+  <cluster-name>dev</cluster-name>
+
+  <network>
+    <port auto-increment="false">5701</port>
+    <rest-api enabled="true">
+      <endpoint-group name="HEALTH_CHECK" enabled="true"/>
+      <endpoint-group name="CLUSTER_READ" enabled="true"/>
+      <endpoint-group name="CLUSTER_WRITE" enabled="true"/>
+    </rest-api>
+    <join>
+      <multicast enabled="false"/>
+      <tcp-ip enabled="true">
+        <member>hazelcast1:5701</member>
+        <member>hazelcast2:5701</member>
+        <member>hazelcast3:5701</member>
+      </tcp-ip>
+    </join>
+  </network>
+
+  <map name="messages">
+    <backup-count>1</backup-count>
+    <async-backup-count>1</async-backup-count>
+    <time-to-live-seconds>0</time-to-live-seconds>
+    <eviction eviction-policy="NONE" max-size-policy="PER_NODE" size="0"/>
+  </map>
+
+</hazelcast>
