@@ -1,0 +1,21 @@
+# ConfigMap stores all shared configuration
+# This replaces the custom config-server from the previous lab.
+# Services read these values via environment variables injected by K8s.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: default
+data:
+  # Hazelcast config (used by logging-service)
+  HZ_HOSTS: "hazelcast:5701"
+  HZ_CLUSTER_NAME: "dev"
+  HZ_MAP_NAME: "messages"
+
+  # Message Queue config (used by facade-service and counter-service)
+  MQ_QUEUE_NAME: "counter-queue"
+
+  # Service discovery via K8s DNS (used by facade-service)
+  # K8s automatically creates DNS entries: <service-name>.<namespace>.svc.cluster.local
+  LOGGING_SERVICE_URL: "http://logging-service:8081"
+  COUNTER_SERVICE_URL: "http://counter-service:8084"

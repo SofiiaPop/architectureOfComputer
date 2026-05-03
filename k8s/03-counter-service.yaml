@@ -1,0 +1,94 @@
+# PersistentVolumeClaim for SQLite DB
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: counter-db-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+# counter-service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: counter-service
+  namespace: default
+spec:
+  replicas: 1  # SQLite is not safe for concurrent writes from multiple pods
+  selector:
+    matchLabels:
+      app: counter-service
+  template:
+    metadata:
+      labels:
+        app: counter-service
+    spec:
+      containers:
+        - name: counter-service
+          image: counter-service:latest
+          imagePullPolicy: Never  # use local Minikube image
+          ports:
+            - containerPort: 8084
+          env:
+            - name: PORT
+              value: "8084"
+            # MQ config from ConfigMap
+            - name: HZ_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: HZ_HOSTS
+            - name: HZ_CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: HZ_CLUSTER_NAME
+            - name: MQ_QUEUE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: MQ_QUEUE_NAME
+          volumeMounts:
+            - name: db-storage
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: counter-db-pvc
+---
+# K8s Service for counter-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-service
+  namespace: default
+spec:
+  selector:
+    app: counter-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+  type: ClusterIP

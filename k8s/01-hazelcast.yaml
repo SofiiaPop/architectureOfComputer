@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hazelcast
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hazelcast
+  template:
+    metadata:
+      labels:
+        app: hazelcast
+    spec:
+      containers:
+        - name: hazelcast
+          image: hazelcast/hazelcast:5.3
+          ports:
+            - containerPort: 5701
+          env:
+            - name: HZ_CLUSTERNAME
+              value: "dev"
+            - name: JAVA_OPTS
+              value: "-Dhazelcast.local.publicAddress=hazelcast:5701"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hazelcast
+  namespace: default
+spec:
+  selector:
+    app: hazelcast
+  ports:
+    - port: 5701
+      targetPort: 5701
+  type: ClusterIP

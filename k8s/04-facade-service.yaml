@@ -1,0 +1,88 @@
+# facade-service Deployment
+# Reads service addresses from ConfigMap - no hardcoded IPs anywhere.
+# K8s DNS resolves "logging-service" and "counter-service" to the right pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: facade-service
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: facade-service
+  template:
+    metadata:
+      labels:
+        app: facade-service
+    spec:
+      containers:
+        - name: facade-service
+          image: facade-service:latest
+          imagePullPolicy: Never  # use local Minikube image
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+            # Service discovery: addresses come from ConfigMap, resolved by K8s DNS
+            - name: LOGGING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: LOGGING_SERVICE_URL
+            - name: COUNTER_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: COUNTER_SERVICE_URL
+            # Hazelcast / MQ config from ConfigMap
+            - name: HZ_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: HZ_HOSTS
+            - name: HZ_CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: HZ_CLUSTER_NAME
+            - name: MQ_QUEUE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: MQ_QUEUE_NAME
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+# K8s Service for facade-service - NodePort exposes it outside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: facade-service
+  namespace: default
+spec:
+  selector:
+    app: facade-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30000
+  type: NodePort

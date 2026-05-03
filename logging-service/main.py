@@ -1,57 +1,51 @@
-"""
-logging-service
-  - gRPC TCP server on port 8001  (LogMessage, GetMessages)
-  - HTTP debug server on port 8011 (/, /health)
-"""
-import threading
-from flask import Flask, jsonify
-from grpc_lib import RpcServer, LogRequest, LogResponse, GetRequest, GetResponse
+import os
+import time
+import hazelcast
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-message_store: dict = {}
-store_lock = threading.Lock()
+PORT = int(os.getenv("PORT", 8081))
+HZ_HOSTS = os.getenv("HZ_HOSTS", "hazelcast:5701").split(",")
+HZ_CLUSTER_NAME = os.getenv("HZ_CLUSTER_NAME", "dev")
+HZ_MAP_NAME = os.getenv("HZ_MAP_NAME", "messages")
 
+app = FastAPI()
+hz_client = None
+messages_map = None
 
-def handle_log(body: bytes) -> bytes:
-    req = LogRequest()
-    req.ParseFromString(body)
-    with store_lock:
-        if req.uuid in message_store:
-            print(f"[DEDUP] UUID {req.uuid} already stored — skipping.")
-            resp = LogResponse(status="duplicate", uuid=req.uuid)
-        else:
-            message_store[req.uuid] = req.msg
-            print(f"[LOG] Stored: UUID={req.uuid}  msg={req.msg}")
-            resp = LogResponse(status="ok", uuid=req.uuid)
-    return resp.SerializeToString()
+def connect_hazelcast():
+    global hz_client, messages_map
+    while True:
+        try:
+            hz_client = hazelcast.HazelcastClient(
+                cluster_members=HZ_HOSTS,
+                cluster_name=HZ_CLUSTER_NAME
+            )
+            messages_map = hz_client.get_map(HZ_MAP_NAME).blocking()
+            print(f"[logging-service:{PORT}] Connected to Hazelcast")
+            break
+        except Exception as e:
+            print(f"[logging-service:{PORT}] Hazelcast not ready: {e}, retrying...")
+            time.sleep(3)
 
+class LogEntry(BaseModel):
+    uuid: str
+    msg: str
 
-def handle_get(body: bytes) -> bytes:
-    with store_lock:
-        msgs = list(message_store.values())
-    result = ", ".join(msgs) if msgs else ""
-    print(f"[LOG] Returning {len(msgs)} message(s): {result}")
-    return GetResponse(messages=result).SerializeToString()
+@app.post("/log")
+def log_message(entry: LogEntry):
+    messages_map.put(entry.uuid, entry.msg)
+    return {"status": "logged", "port": PORT}
 
+@app.get("/logs")
+def get_logs():
+    return {k: v for k, v in messages_map.entry_set()}
 
-http_app = Flask("logging-http-debug")
-
-@http_app.route("/")
-@http_app.route("/health")
+@app.get("/health")
 def health():
-    with store_lock:
-        msgs = list(message_store.values())
-    return jsonify({"service": "logging-service", "grpc_port": 8001,
-                    "http_debug_port": 8011, "stored_messages": msgs})
-
-
-rpc = RpcServer("0.0.0.0", 8001)
-rpc.register("LogMessage",  handle_log)
-rpc.register("GetMessages", handle_get)
+    return {"status": "ok", "port": PORT}
 
 if __name__ == "__main__":
-    threading.Thread(
-        target=lambda: http_app.run(host="0.0.0.0", port=8011, debug=False),
-        daemon=True
-    ).start()
-    print("[LOG] HTTP debug endpoint → http://127.0.0.1:8011/health")
-    rpc.serve()
+    connect_hazelcast()
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

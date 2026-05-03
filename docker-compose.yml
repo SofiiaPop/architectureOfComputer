@@ -1,0 +1,103 @@
+services:
+  hz1:
+    image: hazelcast/hazelcast:5.3
+    environment:
+      HZ_CLUSTERNAME: dev
+    networks:
+      - micronet
+
+  hz2:
+    image: hazelcast/hazelcast:5.3
+    environment:
+      HZ_CLUSTERNAME: dev
+    networks:
+      - micronet
+
+  hz3:
+    image: hazelcast/hazelcast:5.3
+    environment:
+      HZ_CLUSTERNAME: dev
+    networks:
+      - micronet
+
+  config-server:
+    build: ./config-server
+    ports:
+      - "8080:8080"
+    networks:
+      - micronet
+
+  logging-service-1:
+    build: ./logging-service
+    environment:
+      PORT: "8081"
+      CONFIG_SERVER_URL: "http://config-server:8080"
+      HZ_HOSTS: "hz1:5701,hz2:5701,hz3:5701"
+    ports:
+      - "8081:8081"
+    depends_on:
+      - config-server
+      - hz1
+    networks:
+      - micronet
+
+  logging-service-2:
+    build: ./logging-service
+    environment:
+      PORT: "8082"
+      CONFIG_SERVER_URL: "http://config-server:8080"
+      HZ_HOSTS: "hz1:5701,hz2:5701,hz3:5701"
+    ports:
+      - "8082:8082"
+    depends_on:
+      - config-server
+      - hz1
+    networks:
+      - micronet
+
+  logging-service-3:
+    build: ./logging-service
+    environment:
+      PORT: "8083"
+      CONFIG_SERVER_URL: "http://config-server:8080"
+      HZ_HOSTS: "hz1:5701,hz2:5701,hz3:5701"
+    ports:
+      - "8083:8083"
+    depends_on:
+      - config-server
+      - hz1
+    networks:
+      - micronet
+
+  counter-service:
+    build: ./counter-service
+    environment:
+      PORT: "8084"
+      CONFIG_SERVER_URL: "http://config-server:8080"
+      HZ_HOSTS: "hz1:5701,hz2:5701,hz3:5701"
+    ports:
+      - "8084:8084"
+    depends_on:
+      - config-server
+      - hz1
+    networks:
+      - micronet
+
+  facade-service:
+    build: ./facade-service
+    environment:
+      PORT: "8000"
+      CONFIG_SERVER_URL: "http://config-server:8080"
+      HZ_HOSTS: "hz1:5701,hz2:5701,hz3:5701"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - config-server
+      - logging-service-1
+      - counter-service
+    networks:
+      - micronet
+
+networks:
+  micronet:
+    driver: bridge
